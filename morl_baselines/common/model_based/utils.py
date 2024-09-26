@@ -103,6 +103,8 @@ class ModelEnv:
             self.termination_func = termination_fn_false
         elif env_id == "deep-sea-treasure-v0":
             self.termination_func = termination_fn_dst
+        elif env_id == "justice_env":
+            self.termination_func = termination_fn_false
         else:
             raise NotImplementedError
 
