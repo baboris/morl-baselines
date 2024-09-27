@@ -1,6 +1,7 @@
 """MORL algorithm base classes."""
 import os
 import time
+import wandb
 from abc import ABC, abstractmethod
 from distutils.util import strtobool
 from typing import Dict, Optional, Union
@@ -254,10 +255,13 @@ class MOAgent(ABC):
         Returns:
             None
         """
+        # Split experiment_name at ":" to get the real experiment name and the run_id
+        # We do this such that we can plot to the same wandb run from outside the train function
+        experiment_name, run_id = experiment_name.split(":")
         self.experiment_name = experiment_name
         env_id = self.env.spec.id if not isinstance(self.env, MOSyncVectorEnv) else self.env.envs[0].spec.id
-        self.full_experiment_name = f"{env_id}__{experiment_name}__{self.seed}__{int(time.time())}"
-        import wandb
+        #self.full_experiment_name = f"{env_id}__{experiment_name}__{self.seed}__{int(time.time())}"
+        self.full_experiment_name = self.experiment_name
 
         config = self.get_config()
         config["algo"] = self.experiment_name
@@ -269,6 +273,7 @@ class MOAgent(ABC):
             entity=entity,
             config=config,
             name=self.full_experiment_name,
+            id=run_id,
             monitor_gym=monitor_gym,
             save_code=True,
             group=group,
