@@ -133,10 +133,13 @@ wandb/
 
 # Pycharm
 .idea/
-.DS_Store
+**/.DS_Store
 
 # Saved weights
 weights/
 
 # Saved videos
 videos/
+
+# vscode
+.vscode/

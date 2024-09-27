@@ -14,9 +14,11 @@ if __name__ == "__main__":
         warmup_iterations=80,
         evolutionary_iterations=20,
         num_weight_candidates=7,
+        origin=np.array([0.0, -5.0]),
     )
     algo.train(
         total_timesteps=int(5e6),
+        eval_env=make_env(env_id, 42, 0, "PGMORL_eval_env", gamma=0.995)(),
         ref_point=np.array([0.0, -5.0]),
         known_pareto_front=None,
     )

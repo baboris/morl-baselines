@@ -7,14 +7,13 @@ from typing_extensions import override
 import gymnasium as gym
 import numpy as np
 
-from morl_baselines.common.evaluation import policy_evaluation_mo
+from morl_baselines.common.evaluation import (
+    log_all_multi_policy_metrics,
+    policy_evaluation_mo,
+)
 from morl_baselines.common.morl_algorithm import MOAgent
 from morl_baselines.common.scalarization import weighted_sum
-from morl_baselines.common.utils import (
-    equally_spaced_weights,
-    log_all_multi_policy_metrics,
-    random_weights,
-)
+from morl_baselines.common.weights import equally_spaced_weights, random_weights
 from morl_baselines.multi_policy.linear_support.linear_support import LinearSupport
 from morl_baselines.single_policy.ser.mo_q_learning import MOQLearning
 
@@ -164,6 +163,7 @@ class MPMOQLearning(MOAgent):
         timesteps_per_iteration: int = int(2e5),
         num_eval_weights_for_front: int = 100,
         num_eval_episodes_for_front: int = 5,
+        num_eval_weights_for_eval: int = 50,
         eval_freq: int = 1000,
     ):
         """Learn a set of policies.
@@ -176,10 +176,22 @@ class MPMOQLearning(MOAgent):
             timesteps_per_iteration: The number of timesteps per iteration.
             num_eval_weights_for_front: The number of weights to use to construct a Pareto front for evaluation.
             num_eval_episodes_for_front: The number of episodes to run when evaluating the policy.
+            num_eval_weights_for_eval (int): Number of weights use when evaluating the Pareto front, e.g., for computing expected utility.
             eval_freq: The frequency of evaluation.
         """
         if self.log:
-            self.register_additional_config({"ref_point": ref_point.tolist(), "known_front": known_pareto_front})
+            self.register_additional_config(
+                {
+                    "total_timesteps": total_timesteps,
+                    "ref_point": ref_point.tolist(),
+                    "known_front": known_pareto_front,
+                    "timesteps_per_iteration": timesteps_per_iteration,
+                    "num_eval_weights_for_front": num_eval_weights_for_front,
+                    "num_eval_episodes_for_front": num_eval_episodes_for_front,
+                    "num_eval_weights_for_eval": num_eval_weights_for_eval,
+                    "eval_freq": eval_freq,
+                }
+            )
         num_iterations = int(total_timesteps / timesteps_per_iteration)
         if eval_env is None:
             eval_env = deepcopy(self.env)
@@ -200,6 +212,10 @@ class MPMOQLearning(MOAgent):
             elif self.weight_selection_algo == "random":
                 w = random_weights(self.reward_dim, rng=self.np_random)
 
+            if len(self.policies) == 0 or not self.dyna:
+                model = None
+            else:
+                model = self.policies[-1].model  # shared model
             new_agent = MOQLearning(
                 env=self.env,
                 id=iter,
@@ -213,7 +229,7 @@ class MPMOQLearning(MOAgent):
                 use_gpi_policy=self.use_gpi_policy,
                 dyna=self.dyna,
                 dyna_updates=self.dyna_updates,
-                model=self.policies[-1].model if self.dyna else None,  # The model is shared between agents
+                model=model,
                 gpi_pd=self.gpi_pd,
                 parent=self,
                 log=self.log,
@@ -254,6 +270,7 @@ class MPMOQLearning(MOAgent):
                     hv_ref_point=ref_point,
                     reward_dim=self.reward_dim,
                     global_step=self.global_step,
+                    n_sample_weights=num_eval_weights_for_eval,
                     ref_front=known_pareto_front,
                 )
 

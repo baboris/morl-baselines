@@ -13,16 +13,14 @@ import torch.optim as optim
 import wandb
 from torch.distributions import Normal
 
-from morl_baselines.common.evaluation import policy_evaluation_mo
-from morl_baselines.common.morl_algorithm import MOAgent, MOPolicy
-from morl_baselines.common.networks import mlp
-from morl_baselines.common.utils import (
-    equally_spaced_weights,
-    layer_init,
+from morl_baselines.common.evaluation import (
     log_all_multi_policy_metrics,
     log_episode_info,
-    polyak_update,
+    policy_evaluation_mo,
 )
+from morl_baselines.common.morl_algorithm import MOAgent, MOPolicy
+from morl_baselines.common.networks import layer_init, mlp, polyak_update
+from morl_baselines.common.weights import equally_spaced_weights
 
 
 LOG_SIG_MAX = 2
@@ -386,8 +384,10 @@ class CAPQL(MOAgent, MOPolicy):
         known_pareto_front: Optional[List[np.ndarray]] = None,
         num_eval_weights_for_front: int = 100,
         num_eval_episodes_for_front: int = 5,
-        eval_freq: int = 1000,
+        num_eval_weights_for_eval: int = 50,
+        eval_freq: int = 10000,
         reset_num_timesteps: bool = False,
+        checkpoints: bool = False,
     ):
         """Train the agent.
 
@@ -398,16 +398,29 @@ class CAPQL(MOAgent, MOPolicy):
             known_pareto_front (Optional[List[np.ndarray]]): Optimal Pareto front, if known.
             num_eval_weights_for_front (int): Number of weights to evaluate for the Pareto front.
             num_eval_episodes_for_front: number of episodes to run when evaluating the policy.
+            num_eval_weights_for_eval (int): Number of weights use when evaluating the Pareto front, e.g., for computing expected utility.
             eval_freq (int): Number of timesteps between evaluations during an iteration.
             reset_num_timesteps (bool): Whether to reset the number of timesteps.
+            checkpoints (bool): Whether to save checkpoints.
         """
         if self.log:
-            self.register_additional_config({"ref_point": ref_point.tolist(), "known_front": known_pareto_front})
+            self.register_additional_config(
+                {
+                    "total_timesteps": total_timesteps,
+                    "ref_point": ref_point.tolist(),
+                    "known_front": known_pareto_front,
+                    "num_eval_weights_for_front": num_eval_weights_for_front,
+                    "num_eval_episodes_for_front": num_eval_episodes_for_front,
+                    "num_eval_weights_for_eval": num_eval_weights_for_eval,
+                    "eval_freq": eval_freq,
+                    "reset_num_timesteps": reset_num_timesteps,
+                }
+            )
 
         eval_weights = equally_spaced_weights(self.reward_dim, n=num_eval_weights_for_front)
 
         angle = th.pi * (22.5 / 180)
-        weight_sampler = WeightSamplerAngle(self.env.reward_dim, angle)
+        weight_sampler = WeightSamplerAngle(self.env.unwrapped.reward_dim, angle)
 
         self.global_step = 0 if reset_num_timesteps else self.global_step
         self.num_episodes = 0 if reset_num_timesteps else self.num_episodes
@@ -438,9 +451,6 @@ class CAPQL(MOAgent, MOPolicy):
             if self.global_step >= self.learning_starts:
                 self.update()
 
-            if eval_env is not None and self.log and self.global_step % eval_freq == 0:
-                self.policy_eval(eval_env, weights=w, log=self.log)
-
             if terminated or truncated:
                 obs, info = self.env.reset()
                 self.num_episodes += 1
@@ -450,7 +460,7 @@ class CAPQL(MOAgent, MOPolicy):
             else:
                 obs = next_obs
 
-            if self.log and self.global_step % (eval_freq * 10) == 0:
+            if self.log and self.global_step % eval_freq == 0:
                 # Evaluation
                 returns_test_tasks = [
                     policy_evaluation_mo(self, eval_env, ew, rep=num_eval_episodes_for_front)[3] for ew in eval_weights
@@ -460,10 +470,12 @@ class CAPQL(MOAgent, MOPolicy):
                     hv_ref_point=ref_point,
                     reward_dim=self.reward_dim,
                     global_step=self.global_step,
+                    n_sample_weights=num_eval_weights_for_eval,
                     ref_front=known_pareto_front,
                 )
 
             # Checkpoint
-            self.save(filename="CPQL", save_replay_buffer=False)
+            if checkpoints:
+                self.save(filename="CAPQL", save_replay_buffer=False)
 
         self.close_wandb()

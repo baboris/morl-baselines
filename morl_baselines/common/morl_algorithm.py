@@ -1,11 +1,14 @@
 """MORL algorithm base classes."""
+import os
 import time
 from abc import ABC, abstractmethod
+from distutils.util import strtobool
 from typing import Dict, Optional, Union
 
 import gymnasium as gym
 import numpy as np
 import torch as th
+import torch.nn
 import wandb
 from gymnasium import spaces
 from mo_gymnasium.utils import MOSyncVectorEnv
@@ -100,7 +103,7 @@ class MOPolicy(ABC):
             scalarized_discounted_return,
             vec_return,
             discounted_vec_return,
-        ) = policy_evaluation_mo(self, eval_env, w=weights, rep=num_episodes)
+        ) = policy_evaluation_mo(self, eval_env, scalarization=scalarization, w=weights, rep=num_episodes)
 
         if log:
             self.__report(
@@ -147,6 +150,30 @@ class MOPolicy(ABC):
 
         return scalarized_reward, scalarized_discounted_reward, vec_reward, discounted_vec_reward
 
+    def get_policy_net(self) -> torch.nn.Module:
+        """Returns the weights of the policy net."""
+        pass
+
+    def get_buffer(self):
+        """Returns a pointer to the replay buffer."""
+        pass
+
+    def set_buffer(self, buffer):
+        """Sets the buffer to the passed buffer.
+
+        Args:
+            buffer: new buffer (potentially shared)
+        """
+        pass
+
+    def set_weights(self, weights: np.ndarray):
+        """Sets new weights.
+
+        Args:
+            weights: the new weights to use in scalarization.
+        """
+        pass
+
     @abstractmethod
     def update(self) -> None:
         """Update algorithm's parameters (e.g. using experiences from the buffer)."""
@@ -183,19 +210,19 @@ class MOAgent(ABC):
             self.env = env
             if isinstance(self.env.observation_space, spaces.Discrete):
                 self.observation_shape = (1,)
-                self.observation_dim = self.env.observation_space.n
+                self.observation_dim = self.env.unwrapped.observation_space.n
             else:
-                self.observation_shape = self.env.observation_space.shape
-                self.observation_dim = self.env.observation_space.shape[0]
+                self.observation_shape = self.env.unwrapped.observation_space.shape
+                self.observation_dim = self.env.unwrapped.observation_space.shape[0]
 
-            self.action_space = env.action_space
-            if isinstance(self.env.action_space, (spaces.Discrete, spaces.MultiBinary)):
+            self.action_space = env.unwrapped.action_space
+            if isinstance(self.env.unwrapped.action_space, (spaces.Discrete, spaces.MultiBinary)):
                 self.action_shape = (1,)
-                self.action_dim = self.env.action_space.n
+                self.action_dim = self.env.unwrapped.action_space.n
             else:
-                self.action_shape = self.env.action_space.shape
-                self.action_dim = self.env.action_space.shape[0]
-            self.reward_dim = self.env.reward_space.shape[0]
+                self.action_shape = self.env.unwrapped.action_space.shape
+                self.action_dim = self.env.unwrapped.action_space.shape[0]
+            self.reward_dim = self.env.unwrapped.reward_space.shape[0]
 
     @abstractmethod
     def get_config(self) -> dict:
@@ -214,7 +241,9 @@ class MOAgent(ABC):
         for key, value in conf.items():
             wandb.config[key] = value
 
-    def setup_wandb(self, project_name: str, experiment_name: str, entity: Optional[str] = None) -> None:
+    def setup_wandb(
+        self, project_name: str, experiment_name: str, entity: Optional[str] = None, group: Optional[str] = None
+    ) -> None:
         """Initializes the wandb writer.
 
         Args:
@@ -232,15 +261,17 @@ class MOAgent(ABC):
 
         config = self.get_config()
         config["algo"] = self.experiment_name
+        # looks for whether we're using a Gymnasium based env in env_variable
+        monitor_gym = strtobool(os.environ.get("MONITOR_GYM", "True"))
 
         wandb.init(
             project=project_name,
             entity=entity,
-            sync_tensorboard=True,
             config=config,
             name=self.full_experiment_name,
-            monitor_gym=True,
+            monitor_gym=monitor_gym,
             save_code=True,
+            group=group,
         )
         # The default "step" of wandb is not the actual time step (gloabl_step) of the MDP
         wandb.define_metric("*", step_metric="global_step")

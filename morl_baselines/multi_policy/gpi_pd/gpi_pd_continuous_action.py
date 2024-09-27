@@ -13,22 +13,20 @@ import torch.optim as optim
 import wandb
 
 from morl_baselines.common.buffer import ReplayBuffer
-from morl_baselines.common.evaluation import policy_evaluation_mo
+from morl_baselines.common.evaluation import (
+    log_all_multi_policy_metrics,
+    log_episode_info,
+    policy_evaluation_mo,
+)
 from morl_baselines.common.model_based.probabilistic_ensemble import (
     ProbabilisticEnsemble,
 )
 from morl_baselines.common.model_based.utils import ModelEnv, visualize_eval
 from morl_baselines.common.morl_algorithm import MOAgent, MOPolicy
-from morl_baselines.common.networks import mlp
+from morl_baselines.common.networks import layer_init, mlp, polyak_update
 from morl_baselines.common.prioritized_buffer import PrioritizedReplayBuffer
-from morl_baselines.common.utils import (
-    equally_spaced_weights,
-    layer_init,
-    log_all_multi_policy_metrics,
-    log_episode_info,
-    polyak_update,
-    unique_tol,
-)
+from morl_baselines.common.utils import unique_tol
+from morl_baselines.common.weights import equally_spaced_weights
 from morl_baselines.multi_policy.linear_support.linear_support import LinearSupport
 
 
@@ -517,6 +515,7 @@ class GPIPDContinuousAction(MOAgent, MOPolicy):
             eval_freq (int): Number of timesteps between evaluations.
             reset_num_timesteps (bool): Whether to reset the number of timesteps.
         """
+        weight_support = unique_tol(weight_support)
         self.set_weight_support(weight_support)
         tensor_w = th.tensor(weight).float().to(self.device)
 
@@ -595,9 +594,12 @@ class GPIPDContinuousAction(MOAgent, MOPolicy):
         known_pareto_front: Optional[List[np.ndarray]] = None,
         num_eval_weights_for_front: int = 100,
         num_eval_episodes_for_front: int = 5,
+        num_eval_weights_for_eval: int = 50,
         weight_selection_algo: str = "gpi-ls",
         timesteps_per_iter: int = 10000,
         eval_freq: int = 1000,
+        eval_mo_freq: int = 10000,
+        checkpoints: bool = True,
     ):
         """Train the agent.
 
@@ -608,12 +610,28 @@ class GPIPDContinuousAction(MOAgent, MOPolicy):
             known_pareto_front (Optional[List[np.ndarray]]): Optimal Pareto front, if known.
             num_eval_weights_for_front (int): Number of weights to evaluate for the Pareto front.
             num_eval_episodes_for_front: number of episodes to run when evaluating the policy.
+            num_eval_weights_for_eval (int): Number of weights use when evaluating the Pareto front, e.g., for computing expected utility.
             weight_selection_algo (str): Weight selection algorithm to use.
             timesteps_per_iter (int): Number of timesteps to train the agent for each iteration.
             eval_freq (int): Number of timesteps between evaluations during an iteration.
+            eval_mo_freq (int): Number of timesteps between multi-objective evaluations.
+            checkpoints (bool): Whether to save checkpoints.
         """
         if self.log:
-            self.register_additional_config({"ref_point": ref_point.tolist(), "known_front": known_pareto_front})
+            self.register_additional_config(
+                {
+                    "total_timesteps": total_timesteps,
+                    "ref_point": ref_point.tolist(),
+                    "known_front": known_pareto_front,
+                    "num_eval_weights_for_front": num_eval_weights_for_front,
+                    "num_eval_episodes_for_front": num_eval_episodes_for_front,
+                    "num_eval_weights_for_eval": num_eval_weights_for_eval,
+                    "weight_selection_algo": weight_selection_algo,
+                    "timesteps_per_iter": timesteps_per_iter,
+                    "eval_freq": eval_freq,
+                    "eval_mo_freq": eval_mo_freq,
+                }
+            )
         max_iter = total_timesteps // timesteps_per_iter
         linear_support = LinearSupport(num_objectives=self.reward_dim, epsilon=0.0 if weight_selection_algo == "ols" else None)
 
@@ -662,7 +680,7 @@ class GPIPDContinuousAction(MOAgent, MOPolicy):
                     n_value = policy_evaluation_mo(self, eval_env, wcw, rep=num_eval_episodes_for_front)[3]
                     linear_support.add_solution(n_value, wcw)
 
-            if self.log:
+            if self.log and self.global_step % eval_mo_freq == 0:
                 # Evaluation
                 gpi_returns_test_tasks = [
                     policy_evaluation_mo(self, eval_env, ew, rep=num_eval_episodes_for_front)[3] for ew in eval_weights
@@ -672,6 +690,7 @@ class GPIPDContinuousAction(MOAgent, MOPolicy):
                     hv_ref_point=ref_point,
                     reward_dim=self.reward_dim,
                     global_step=self.global_step,
+                    n_sample_weights=num_eval_weights_for_eval,
                     ref_front=known_pareto_front,
                 )
                 # This is the EU computed in the paper
@@ -681,7 +700,8 @@ class GPIPDContinuousAction(MOAgent, MOPolicy):
                 wandb.log({"eval/Mean Utility - GPI": mean_gpi_returns_test_tasks, "iteration": iter})
 
             # Checkpoint
-            self.save(filename=f"GPI-PD {weight_selection_algo} iter={iter}", save_replay_buffer=False)
+            if checkpoints:
+                self.save(filename=f"GPI-PD {weight_selection_algo} iter={iter}", save_replay_buffer=False)
 
         self.close_wandb()
 

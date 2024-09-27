@@ -16,10 +16,10 @@ import torch as th
 import wandb
 from scipy.optimize import least_squares
 
+from morl_baselines.common.evaluation import log_all_multi_policy_metrics
 from morl_baselines.common.morl_algorithm import MOAgent
 from morl_baselines.common.pareto import ParetoArchive
 from morl_baselines.common.performance_indicators import hypervolume, sparsity
-from morl_baselines.common.utils import log_all_multi_policy_metrics
 from morl_baselines.single_policy.ser.mo_ppo import MOPPO, MOPPONet, make_env
 
 
@@ -325,6 +325,7 @@ class PGMORL(MOAgent):
         gae: bool = True,
         gae_lambda: float = 0.95,
         device: Union[th.device, str] = "auto",
+        group: Optional[str] = None,
     ):
         """Initializes the PGMORL agent.
 
@@ -364,6 +365,7 @@ class PGMORL(MOAgent):
             gae: whether to use generalized advantage estimation
             gae_lambda: lambda parameter for GAE
             device: device on which the code should run
+            group: The wandb group to use for logging.
         """
         super().__init__(env, device=device, seed=seed)
         # Env dimensions
@@ -425,7 +427,7 @@ class PGMORL(MOAgent):
         # Logging
         self.log = log
         if self.log:
-            self.setup_wandb(project_name, experiment_name, wandb_entity)
+            self.setup_wandb(project_name, experiment_name, wandb_entity, group)
 
         self.networks = [
             MOPPONet(
@@ -536,6 +538,7 @@ class PGMORL(MOAgent):
                 hv_ref_point=ref_point,
                 reward_dim=self.reward_dim,
                 global_step=self.global_step,
+                n_sample_weights=self.num_eval_weights_for_eval,
                 ref_front=known_pareto_front,
             )
 
@@ -615,10 +618,19 @@ class PGMORL(MOAgent):
         eval_env: gym.Env,
         ref_point: np.ndarray,
         known_pareto_front: Optional[List[np.ndarray]] = None,
+        num_eval_weights_for_eval: int = 50,
     ):
         """Trains the agents."""
         if self.log:
-            self.register_additional_config({"ref_point": ref_point.tolist(), "known_front": known_pareto_front})
+            self.register_additional_config(
+                {
+                    "total_timesteps": total_timesteps,
+                    "ref_point": ref_point.tolist(),
+                    "known_front": known_pareto_front,
+                    "num_eval_weights_for_eval": num_eval_weights_for_eval,
+                }
+            )
+        self.num_eval_weights_for_eval = num_eval_weights_for_eval
         max_iterations = total_timesteps // self.steps_per_iteration // self.num_envs
         iteration = 0
         # Init

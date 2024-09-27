@@ -64,11 +64,13 @@ algos/performances
 
 features/pareto
 features/evaluations
+features/weights
 features/performance_indicators
 features/scalarization
 features/buffers
 features/networks
 features/misc
+features/hpo
 ```
 
 ```{toctree}
