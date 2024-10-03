@@ -463,7 +463,7 @@ class PCN(MOAgent, MOPolicy):
             # leaves_h = np.array([len(e[2]) for e in self.experience_replay[len(self.experience_replay) // 2 :]])
 
             if self.log:
-                hv = hypervolume(ref_point, leaves_r)
+                hv = hypervolume(ref_point, leaves_r, self.gamma)
                 hv_est = hv
                 wandb.log(
                     {

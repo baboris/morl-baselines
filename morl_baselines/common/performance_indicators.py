@@ -11,7 +11,7 @@ from pymoo.indicators.hv import HV
 from pymoo.indicators.igd import IGD
 
 
-def hypervolume(ref_point: np.ndarray, points: List[npt.ArrayLike]) -> float:
+def hypervolume(ref_point: np.ndarray, points: List[npt.ArrayLike], gamma: float = 0.99) -> float:
     """Computes the hypervolume metric for a set of points (value vectors) and a reference point (from Pymoo).
 
     Args:
@@ -21,7 +21,14 @@ def hypervolume(ref_point: np.ndarray, points: List[npt.ArrayLike]) -> float:
     Returns:
         float: Hypervolume metric
     """
-    return HV(ref_point=ref_point * -1)(np.array(points) * -1)
+    if gamma == 1.0:
+        c = 286.0
+    else: 
+        c = (1-gamma**286)/(1-gamma)
+
+    #ref_point = ref_point - c*np.ones(len(ref_point))
+
+    return (HV(ref_point=ref_point * -1)(np.array(points) * -1))/(c**2)
 
 
 def igd(known_front: List[np.ndarray], current_estimate: List[np.ndarray]) -> float:

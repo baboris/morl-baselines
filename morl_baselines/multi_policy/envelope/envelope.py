@@ -562,6 +562,7 @@ class Envelope(MOPolicy, MOAgent):
                     global_step=self.global_step,
                     n_sample_weights=num_eval_weights_for_eval,
                     ref_front=known_pareto_front,
+                    gamma = self.gamma,
                 )
 
             if terminated or truncated:

@@ -150,6 +150,7 @@ def log_all_multi_policy_metrics(
     global_step: int,
     n_sample_weights: int,
     ref_front: Optional[List[np.ndarray]] = None,
+    gamma : float = 0.99,
 ):
     """Logs all metrics for multi-policy training.
 
@@ -170,7 +171,7 @@ def log_all_multi_policy_metrics(
         ref_front: reference front, if known
     """
     filtered_front = list(filter_pareto_dominated(current_front))
-    hv = hypervolume(hv_ref_point, filtered_front)
+    hv = hypervolume(hv_ref_point, filtered_front, gamma)
     sp = sparsity(filtered_front)
     eum = expected_utility(filtered_front, weights_set=equally_spaced_weights(reward_dim, n_sample_weights))
     card = cardinality(filtered_front)

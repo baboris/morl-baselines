@@ -900,6 +900,7 @@ class GPIPD(MOPolicy, MOAgent):
                     global_step=self.global_step,
                     n_sample_weights=num_eval_weights_for_eval,
                     ref_front=known_pareto_front,
+                    gamma = self.gamma,
                 )
                 # This is the EU computed in the paper
                 mean_gpi_returns_test_tasks = np.mean(
